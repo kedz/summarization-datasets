@@ -294,11 +294,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output-dir", type=str, required=True)
     parser.add_argument(
-        "--spacy-procs", type=int, required=False, default=None)
+        "--procs", type=int, required=False, default=None)
     args = parser.parse_args()
 
-    if args.spacy_procs is None:
-        args.spacy_procs = min(cpu_count(), 16)
+    if args.procs is None:
+        args.procs = min(cpu_count(), 16)
 
     try:
         workdir = tempfile.mkdtemp()
@@ -354,7 +354,7 @@ def main():
         check_dir(valid_abstracts)                                                 
         check_dir(test_abstracts)
         
-        pool = Pool(args.spacy_procs, initializer=init_worker)
+        pool = Pool(args.procs, initializer=init_worker)
 
         print("Writing cnn/dailymail validation data...")
         write_to_file(
@@ -366,6 +366,16 @@ def main():
             valid_abstracts,
             pool)
 
+        print("Writing cnn/dailymail train data...")
+        write_to_file(
+            train_urls,
+            CNN_TOK_STORIES,
+            DM_TOK_STORIES,
+            train_stories,
+            train_labels,
+            train_abstracts,
+            pool)
+ 
         print("Writing cnn/dailymail test data...")
         write_to_file(
             test_urls,
