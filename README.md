@@ -53,6 +53,15 @@ python summarization-datasets/preprocess_duc_sds.py \
 
 This will create put preprocessed duc data in `data/duc-sds/`.
  
+# Reddit Dataset
+
+To run:
+```sh
+python summarization-datasets/preprocess_reddit.py \
+    --data-dir data/
+```
+This will create the Reddit data in a directory `data/reddit`. 
+ 
 # PubMed Dataset
 
 To run:
