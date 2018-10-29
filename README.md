@@ -8,6 +8,10 @@ To install run:
 $ python setup.py install
 ``
 
+If you haven't installed spacy before in your current environment you should also run:
+``sh
+python -m spacy download en
+``
 
 # DUC Dataset
 
