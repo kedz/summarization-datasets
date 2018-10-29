@@ -4,14 +4,14 @@ Pre-processing and in some cases downloading of datasets for the paper "Content 
 Learning Models of Summarization."
 
 To install run:
-``sh
+```sh
 $ python setup.py install
-``
+```
 
 If you haven't installed spacy before in your current environment you should also run:
-``sh
+```sh
 python -m spacy download en
-``
+```
 
 # DUC Dataset
 
@@ -34,13 +34,13 @@ This should create a file `raw_data/DUC2002_test_data.tar.gz`
 
 Now run the preprocessing scripts:
 
-``sh
+```sh
 python summarization-datasets/preprocess_duc_sds.py \
     --duc2001 raw_data/DUC2001_Summarization_Documents.tgz \
     --duc2002-documents raw_data/DUC2002_Summarization_Documents.tgz \
     --duc2002-summaries raw_data/DUC2002_test_data.tar.gz 
     --data-dir data
-``
+```
 
 This will create put preprocessed duc data in `data/duc-sds/`.
  
