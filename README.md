@@ -3,6 +3,8 @@ summarization-datasets
 Pre-processing and in some cases downloading of datasets for the paper "Content Selection in Deep 
 Learning Models of Summarization."
 
+Requires python 3.6 or greater.
+
 To install run:
 ```sh
 $ python setup.py install
@@ -23,6 +25,21 @@ python summarization-datasets/preprocess_cnn_dailymail.py \
 ```
 This will create the CNN/DM data in a directory `data/cnn-dailymail`.
 This dataset is quite large and will take a while to preprocess. Grab a coffee!
+
+# NYT Dataset
+
+You must obtain the raw documents for this dataset from the LDC: https://catalog.ldc.upenn.edu/ldc2008t19
+Assuming you have the original NYT tar file in a directory called `raw_data`, run the following:
+```sh
+cd raw_data
+tar zxvf nyt_corpus_LDC2008T19.tgz
+cd ..
+python summarization-datasets/preprocess_nyt.py \
+    --nyt raw_data/nyt \
+    --data-dir data
+```
+This will create preprocessed NYT data in `data/nyt/`.
+
 
 # DUC Dataset
 
@@ -53,7 +70,7 @@ python summarization-datasets/preprocess_duc_sds.py \
     --data-dir data
 ```
 
-This will create put preprocessed duc data in `data/duc-sds/`.
+This will create preprocessed duc data in `data/duc-sds/`.
  
 # Reddit Dataset
 
