@@ -1,26 +1,27 @@
+import rouge_papier
+
 import argparse
-import os
-import sys
+import pathlib
+
 import tarfile
 from bs4 import BeautifulSoup
 from multiprocessing import Pool
 import spacy
 import re
-import rouge_papier
 import ujson as json
 
+
 def get_paths(root_dir):
-    data_dir = os.path.join(root_dir, "data")
+    data_dir = root_dir / "data"
     paths = []
-    years = os.listdir(data_dir)
+    years = [x for x in data_dir.glob("*")]
     years.sort()
     for year in years:
-        months = os.listdir(os.path.join(data_dir, year))
+        months = [x for x in year.glob("*")]
         months.sort()
         for month in months:
-            path = os.path.join(data_dir, year, month)
-            if path.endswith('tgz'):
-                paths.append(path)
+            if month.name.endswith('tgz'):
+                paths.append(month)
     return paths
 
 bad_sections = set([
@@ -55,9 +56,6 @@ def prepare_example(article_text, abstract_text, ol_text, doc_id, sections):
                            "word_count": len(pretty_text.split())})
     for i, inp in enumerate(inputs, 1):
         inp["sentence_id"] = i
-#    for i, inp in enumerate(inputs, 1):
-#        print(i, " ".join(inp["tokens"]))
-#    print("")
 
     summary_texts = []
     if len(abstract_text) > 0:
@@ -76,93 +74,111 @@ def prepare_example(article_text, abstract_text, ol_text, doc_id, sections):
     example = {"id": doc_id, "inputs": inputs, "sections": sections}
     return example, labels, abstract_text, ol_text
 
-def worker(path): 
-    
-    data = []  
-    with tarfile.open(path, "r:gz") as tar:
+def extract_doc(content):
+    soup = BeautifulSoup(content, "lxml")
+   
+    sections = set() 
+    for meta in soup.find_all("meta"):
+        if meta["name"] == "online_sections":
+            for section in meta["content"].split(";"):
+                section = section.strip()
+                sections.add(section)
+
+    if len(sections.intersection(bad_sections)) > 0:
+        return None
+
+    article_xml = soup.find("block", {"class": "full_text"})
+    if article_xml is None:
+        return None
+
+    article_text = get_article_text(article_xml)
+    if len(article_text.split()) < 200:
+        return None
+      
+    abstract_xml = soup.find("abstract")
+    if abstract_xml is not None:
+        abs_txt = abstract_xml.get_text()
+    else:
+        abs_txt = ""
+
+    online_lead_xml = soup.find(
+        "block", {"class": "online_lead_paragraph"})
+    if online_lead_xml is not None:
+        online_lead_txt = online_lead_xml.get_text()
+    else: 
+        online_lead_txt = ""
+    if len(abs_txt.split()) + len(online_lead_txt.split()) < 100:
+        return None
+    doc_id = soup.find("doc-id")["id-string"] 
+    return article_text, abs_txt, online_lead_txt, doc_id, sections
+
+def worker(args):
+    content, inputs_dir, labels_dir, abs_dir = args
+
+    # Process xml to get document and summary text. 
+    doc_data = extract_doc(content)
+    if doc_data is None:
+        return False
+    article_text, abs_txt, online_lead_txt, doc_id, sections = doc_data
+
+    example, labels, abstract_text, ol_text = prepare_example(
+        article_text, abs_txt, online_lead_txt, doc_id, sections)
+
+    assert abstract_text == abs_txt
+    assert online_lead_txt == ol_text
+
+    inputs_path = inputs_dir / "{}.json".format(example["id"])
+    inputs_path.write_text(json.dumps(example))
+    labels_path = labels_dir / "{}.json".format(example["id"])
+    labels_path.write_text(json.dumps(labels))
+
+    if len(abs_txt) > 0:
+        abs_path1 = abs_dir / "{}.1.txt".format(example["id"])
+        abs_path1.write_text(abs_txt)
+    if len(ol_text) > 0:
+        abs_path2 = abs_dir / "{}.2.txt".format(example["id"])
+        abs_path2.write_text(ol_text)
+
+    return True
+
+def doc_iter(tar_path):
+    with tarfile.open(tar_path, "r:gz") as tar:
         for member in tar:
             f = tar.extractfile(member)
             if f is None:
                 continue
             content = f.read().decode("utf8")
-            soup = BeautifulSoup(content, "lxml")
-           
-            sections = set() 
-            for meta in soup.find_all("meta"):
-                if meta["name"] == "online_sections":
-                    for section in meta["content"].split(";"):
-                        section = section.strip()
-                        #if section not in gsections:
-                        #    gsections.add(section)
-                        #    print(section)
-                        sections.add(section)
+            yield content
 
-            if len(sections.intersection(bad_sections)) > 0:
-                continue
+def preprocess_part(tar_paths, inputs_dir, labels_dir, abs_dir, procs=16):
 
-            article_xml = soup.find("block", {"class": "full_text"})
-            if article_xml is None:
-                continue
+    inputs_dir.mkdir(exist_ok=True, parents=True)
+    labels_dir.mkdir(exist_ok=True, parents=True)
+    abs_dir.mkdir(exist_ok=True, parents=True)
 
-            article_text = get_article_text(article_xml)
-            if len(article_text.split()) < 200:
-                continue
-              
-            abstract_xml = soup.find("abstract")
-            if abstract_xml is not None:
-                abs_txt = abstract_xml.get_text()
-            else:
-                abs_txt = ""
-
-            online_lead_xml = soup.find(
-                "block", {"class": "online_lead_paragraph"})
-            if online_lead_xml is not None:
-                online_lead_txt = online_lead_xml.get_text()
-            else: 
-                online_lead_txt = ""
-            if len(abs_txt.split()) + len(online_lead_txt.split()) < 100:
-                continue 
-            doc_id = soup.find("doc-id")["id-string"] 
-            data.append(
-                prepare_example(article_text, abs_txt, online_lead_txt, 
-                                doc_id, sections))
-
-    return data
-
-def check_dir(dir_path):
-    if dir_path != "" and not os.path.exists(dir_path):
-        os.makedirs(dir_path)
- 
-def write_data(inputs_path, labels_path, summary_dir, paths, procs=16):
-
+    def data_iter():
+        for tar_path in tar_paths:
+            for content in doc_iter(tar_path):
+                yield content, inputs_dir, labels_dir, abs_dir
     pool = Pool(procs, initializer=init_worker)
-    with open(inputs_path, "w") as inp_fp, open(labels_path, "w") as lbl_fp: 
-        for i, results in enumerate(pool.imap(worker, paths), 1):
-            sys.stdout.write("{}/{}\r".format(i, len(paths)))
-            sys.stdout.flush()
-            for example, labels, abs_text, ol_text in results:
-                inp_fp.write(json.dumps(example))
-                inp_fp.write("\n")
-                lbl_fp.write(json.dumps(labels))
-                lbl_fp.write("\n")
-                if len(abs_text) > 0:
-                    abs_path1 = os.path.join(
-                        summary_dir, "{}.1.txt".format(example["id"]))
-                    with open(abs_path1, "w") as fp:
-                        fp.write(abs_text)
-                if len(ol_text) > 0:
-                    abs_path2 = os.path.join(
-                        summary_dir, "{}.2.txt".format(example["id"]))
-                    with open(abs_path2, "w") as fp:
-                        fp.write(ol_text)
-    print("")                   
- 
+    count = 0
+    for i, is_good in enumerate(pool.imap(worker, data_iter()), 1):
+        if is_good:
+            count += 1
+            print("{}".format(count), end="\r", flush=True)
+    print()
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", type=str, required=True)
-    parser.add_argument("--output", type=str, required=True)
+    parser.add_argument("--nyt", type=pathlib.Path, required=True)
+    parser.add_argument("--data-dir", type=pathlib.Path, required=True)
+    parser.add_argument("--procs", type=int, required=False, default=None)
     args = parser.parse_args()
-    paths = get_paths(args.input)
+
+    if args.procs is None:
+        args.procs = min(cpu_count(), 16)
+
+    paths = get_paths(args.nyt)
 
     train_paths = paths[:-30]
     valid_paths = paths[-30:-18]
@@ -171,87 +187,26 @@ def main():
     print(valid_paths[0], valid_paths[-1])
     print(test_paths[0], test_paths[-1])
 
-    inputs_dir = os.path.join(args.output, "inputs")
-    check_dir(inputs_dir)
-    labels_dir = os.path.join(args.output, "labels")
-    check_dir(labels_dir)    
+    preprocess_part(
+        valid_paths, 
+        args.data_dir / "nyt" / "inputs" / "valid",
+        args.data_dir / "nyt" / "labels" / "valid",
+        args.data_dir / "nyt" / "human-abstracts" / "valid",
+        procs=args.procs)
 
-    valid_inputs = os.path.join(
-        args.output, "inputs", "nyt.spacy.inputs.valid.json")
-    valid_labels = os.path.join(
-        args.output, "labels", "nyt.spacy.labels.valid.json")
-    valid_summary_dir = os.path.join(
-        args.output, "human_abstracts", "valid")
-    check_dir(valid_summary_dir)
-    write_data(valid_inputs, valid_labels, valid_summary_dir, valid_paths)
+    preprocess_part(
+        test_paths, 
+        args.data_dir / "nyt" / "inputs" / "test",
+        args.data_dir / "nyt" / "labels" / "test",
+        args.data_dir / "nyt" / "human-abstracts" / "test",
+        procs=args.procs)
 
-    test_inputs = os.path.join(
-        args.output, "inputs", "nyt.spacy.inputs.test.json")
-    test_labels = os.path.join(
-        args.output, "labels", "nyt.spacy.labels.test.json")
-    test_summary_dir = os.path.join(
-        args.output, "human_abstracts", "test")
-    check_dir(test_summary_dir)
-    write_data(test_inputs, test_labels, test_summary_dir, test_paths)
-
-    train_inputs = os.path.join(
-        args.output, "inputs", "nyt.spacy.inputs.train.json")
-    train_labels = os.path.join(
-        args.output, "labels", "nyt.spacy.labels.train.json")
-    train_summary_dir = os.path.join(
-        args.output, "human_abstracts", "train")
-    check_dir(train_summary_dir)
-    write_data(train_inputs, train_labels, train_summary_dir, train_paths)
-
-
-
-
-
-       #print(path, count)
-
-
-               
-                
-#news?
-#U.S.
-#New York and Region
-#World
-#Business
-#Technology
-#Washington
-#Health
-#Arts
-#Sports
-
-#Automobiles
-#Real Estate
-#Week in Review
-
-# REMOVE 
-#Corrections
-#The Public Editor
-#Editors' Notes
-
-#take both abstracts
-#Opinion
-#Education
-#Theater
-#Movies
-#Books
-#Science
-#Dining and Wine
-#Travel
-#Magazine
-#Job Market
-
-
-
-#hard 
-#Style
-#Home and Garden
-
-#bad 
-##Paid Death Notices
+    preprocess_part(
+        train_paths, 
+        args.data_dir / "nyt" / "inputs" / "train",
+        args.data_dir / "nyt" / "labels" / "train",
+        args.data_dir / "nyt" / "human-abstracts" / "train",
+        procs=args.procs)
 
 if __name__ == "__main__":
     main()

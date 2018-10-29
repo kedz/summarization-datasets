@@ -128,29 +128,31 @@ def get_summary_paths(data_dir, story_id):
     return paths
 
 def worker(args):
-    story_id, raw_text, part = args
+    story_id, raw_text, inputs_dir, ext_labels_dir, abs_labels_dir, part = args
     global data_dir
     global nlp
 
     inputs = process_raw_input(raw_text, nlp)    
     example = {"id": story_id, "inputs": inputs}
-    example_str = json.dumps(example)
+    inputs_path = inputs_dir / "{}.json".format(story_id)
+    inputs_path.write_text(json.dumps(example))
+
     abs_paths = get_summary_paths(
         data_dir / "human-abstracts" / part, story_id)
     ext_paths = get_summary_paths(
         data_dir / "human-extracts" / part, story_id)
 
     ext_labels = {"id": story_id, "labels": get_labels(example, ext_paths)}
-    ext_labels_str = json.dumps(ext_labels)
+    ext_labels_path = ext_labels_dir / "{}.json".format(story_id)
+    ext_labels_path.write_text(json.dumps(ext_labels))
 
     abs_labels = {"id": story_id, "labels": get_labels(example, abs_paths)}
-    abs_labels_str = json.dumps(abs_labels)
-
-    return (example_str, ext_labels_str, abs_labels_str)
+    abs_labels_path = abs_labels_dir / "{}.json".format(story_id)
+    abs_labels_path.write_text(json.dumps(abs_labels))
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output-dir", type=pathlib.Path, required=True)
+    parser.add_argument("--data-dir", type=pathlib.Path, required=True)
     parser.add_argument("--seed", type=int, default=3242342, required=False)
     parser.add_argument("--num-procs", type=int, default=8)
     args = parser.parse_args()
@@ -178,15 +180,11 @@ def main():
     assert len(valid_ids.intersection(test_ids)) == 0
     assert len(test_ids.intersection(train_ids)) == 0
 
-    inputs_dir = args.output_dir / "inputs"
-    inputs_dir.mkdir(parents=True, exist_ok=True)
-    labels_dir = args.output_dir / "labels"
-    labels_dir.mkdir(parents=True, exist_ok=True)
-    abstracts_dir = args.output_dir / "human-abstracts"
+    abstracts_dir = args.data_dir / "reddit" / "human-abstracts"
     train_abstracts_dir = abstracts_dir / "train"
     valid_abstracts_dir = abstracts_dir / "valid"
     test_abstracts_dir = abstracts_dir / "test"
-    extracts_dir = args.output_dir / "human-extracts"
+    extracts_dir = args.data_dir / "reddit" / "human-extracts"
     train_extracts_dir = extracts_dir / "train"
     valid_extracts_dir = extracts_dir / "valid"
     test_extracts_dir = extracts_dir / "test"
@@ -204,60 +202,58 @@ def main():
     write_extracts(valid_ids, tar, valid_extracts_dir)
     print("Writing test extracts to: {}".format(test_extracts_dir))
     write_extracts(test_ids, tar, test_extracts_dir)
-    
 
+    data_dir = args.data_dir / "reddit"
     pool = Pool(
-        args.num_procs, initargs=[args.output_dir], initializer=init_worker)
+        args.num_procs, initargs=[data_dir], initializer=init_worker)
+
 
     make_dataset(
         train_ids,
         tar,
-        inputs_dir / "reddit.inputs.train.json",
-        labels_dir / "reddit.ext.labels.train.json",
-        labels_dir / "reddit.abs.labels.train.json",
+        data_dir / "inputs" / "train",
+        data_dir / "ext_labels" / "train",
+        data_dir / "abs_labels" / "train",
         "train",
         pool)
 
     make_dataset(
         valid_ids,
         tar,
-        inputs_dir / "reddit.inputs.valid.json",
-        labels_dir / "reddit.ext.labels.valid.json",
-        labels_dir / "reddit.abs.labels.valid.json",
+        data_dir / "inputs" / "valid",
+        data_dir / "ext_labels" / "valid",
+        data_dir / "abs_labels" / "valid",
         "valid",
         pool)
 
     make_dataset(
         test_ids,
         tar,
-        inputs_dir / "reddit.inputs.test.json",
-        labels_dir / "reddit.ext.labels.test.json",
-        labels_dir / "reddit.abs.labels.test.json",
+        data_dir / "inputs" / "test",
+        data_dir / "ext_labels" / "test",
+        data_dir / "abs_labels" / "test",
         "test",
         pool)
 
-def make_dataset(story_ids, tar, inputs_path, ext_labels_path, 
-                 abs_labels_path, part, pool):
+def make_dataset(story_ids, tar, inputs_dir, ext_labels_dir, 
+                 abs_labels_dir, part, pool):
+
+    inputs_dir.mkdir(exist_ok=True, parents=True)
+    ext_labels_dir.mkdir(exist_ok=True, parents=True)
+    abs_labels_dir.mkdir(exist_ok=True, parents=True)
 
     def story_iter():
         for story_id in story_ids:
             name = "./eacl_sample_full/narrative/{}.story".format(story_id)
             with tar.extractfile(name) as fp:
-                yield story_id, fp.read().decode("utf8"), part
+                yield (story_id, fp.read().decode("utf8"),
+                       inputs_dir, ext_labels_dir, abs_labels_dir, part)
 
-    with inputs_path.open("w") as inp_fp, \
-            ext_labels_path.open("w") as ext_fp, \
-            abs_labels_path.open("w") as abs_fp:
-        for i, r in enumerate(pool.imap(worker, story_iter()), 1):
-            print("{}/{}\r".format(i, len(story_ids)), 
-                  end="" if i < len(story_ids) else "\n", flush=True)
-            inputs_json, ext_label_json, abs_label_json = r
-            inp_fp.write(inputs_json)
-            inp_fp.write("\n")
-            ext_fp.write(ext_label_json)
-            ext_fp.write("\n")
-            abs_fp.write(abs_label_json)
-            abs_fp.write("\n")
+    for i, _ in enumerate(pool.imap(worker, story_iter()), 1):
+        print(
+            "{}/{}".format(i, len(story_ids)), 
+            end="\r" if i < len(story_ids) else "\n", 
+            flush=True)
 
 if __name__ == "__main__":
     main()

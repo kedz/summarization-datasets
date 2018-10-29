@@ -1,6 +1,8 @@
+import rouge_papier
+
 import requests
 import argparse
-import sys
+import pathlib
 import os
 import shutil
 import zipfile
@@ -11,7 +13,6 @@ import hashlib
 import ujson as json
 import re
 from multiprocessing import Pool, cpu_count
-import rouge_papier
 
 
 # Modified Abigail See's preprocessing code.
@@ -112,10 +113,11 @@ def download_file_from_google_drive(id, expected_size, destination):
                 if chunk: # filter out keep-alive new chunks
                     f.write(chunk)
                     size += len(chunk)
-                sys.stdout.write(
-                    "[{:10d} of {:10d}]\r".format(size, expected_size))
-                sys.stdout.flush()
-            print("")
+                print(
+                    "[{:10d} of {:10d}]".format(size, expected_size),
+                    end="\r" if size < expected_size else "\n",
+                    flush=True)
+
             if size != expected_size:
                 raise Exception(
                     "Download failed! "
@@ -199,16 +201,14 @@ def fix_missing_period(line):
     # print line[-1]
     return line + " ."
 
-
 def init_worker():
     global nlp
     nlp = spacy.load('en', parser=False)
     nlp.tokenizer = WhitespaceTokenizer(nlp.vocab)
-    
 
 def preprocess_inputs(args):
 
-    story_file, abstract_output_dir = args
+    story_file, inputs_dir, labels_dir, abs_dir = args
 
     global nlp
     article, abstract = get_art_abs(story_file)
@@ -220,13 +220,15 @@ def preprocess_inputs(args):
         return None
 
     example = {"id": story_id, "inputs": inputs}
+    inputs_path = inputs_dir / "{}.json".format(story_id)
+    inputs_path.write_text(json.dumps(example))
 
-    abs_path = os.path.join(abstract_output_dir, story_id + ".spl")
-    with open(abs_path, "w") as sfp:
-        sfp.write(abstract_text)
+    abs_path = abs_dir / "{}.spl".format(story_id)
+    abs_path.write_text(abstract_text)
 
     labels = get_labels(example, [abstract_text], 50)
-    return json.dumps(example), json.dumps(labels)
+    labels_path = labels_dir / "{}.json".format(story_id)
+    labels_path.write_text(json.dumps(labels))
 
 def get_labels(example, summary_texts, sent_limit):
     input_texts = [input["text"] if input["word_count"] > 2 else "@@@@@@"
@@ -242,9 +244,12 @@ def get_labels(example, summary_texts, sent_limit):
 
     return {"id": example["id"], "labels": labels}
 
-def write_to_file(url_path, cnn_dir, dm_dir, story_output_path,
-                  labels_output_path,
-                  abstract_output_path, pool):
+def write_to_file(url_path, cnn_dir, dm_dir, inputs_dir,
+                  labels_dir, abs_dir, pool):
+
+    inputs_dir.mkdir(exist_ok=True, parents=True)
+    labels_dir.mkdir(exist_ok=True, parents=True)
+    abs_dir.mkdir(exist_ok=True, parents=True)
 
     url_list = read_text_file(url_path)
     url_hashes = get_url_hashes(url_list)
@@ -255,35 +260,19 @@ def write_to_file(url_path, cnn_dir, dm_dir, story_output_path,
     for fn in story_fnames:
         if os.path.isfile(os.path.join(cnn_dir, fn)):
             story_paths.append(
-                (os.path.join(cnn_dir, fn), abstract_output_path))
+                (os.path.join(cnn_dir, fn), inputs_dir, labels_dir, abs_dir))
         elif os.path.isfile(os.path.join(dm_dir, fn)):
             story_paths.append(
-                (os.path.join(dm_dir, fn), abstract_output_path))
+                (os.path.join(dm_dir, fn), inputs_dir, labels_dir, abs_dir))
         else:
             raise Exception("Missing file for story {}".format(fn))
 
-    with open(story_output_path, "w") as story_fp, \
-            open(labels_output_path, "w") as labels_fp:
-
-        for idx, result in enumerate(
-                pool.imap(preprocess_inputs, story_paths), 1):
-            sys.stdout.write("Writing story {}/{}\r".format(idx, num_stories))
-            sys.stdout.flush()
-
-            if result is not None:
-                ex_json, lbl_json = result
-                story_fp.write(ex_json)
-                story_fp.write("\n")
-                labels_fp.write(lbl_json)
-                labels_fp.write("\n")
- 
-    print("")
-
-def check_dir(path):
-    if not os.path.exists(path):
-        os.makedirs(path)
-
-
+    result_iter = pool.imap(preprocess_inputs, story_paths)
+    for idx, result in enumerate(result_iter, 1):
+        print(
+            "Writing story {}/{}".format(idx, num_stories),
+            end="\r" if idx < num_stories else "\n",
+            flush=True)
 
 def main():
     CNN_TOK_GID = "0BzQ6rtO2VN95cmNuc2xwUS1wdEE"
@@ -292,7 +281,7 @@ def main():
     DM_TOK_EXPECTED_SIZE = 482735659
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output-dir", type=str, required=True)
+    parser.add_argument("--data-dir", type=pathlib.Path, required=True)
     parser.add_argument(
         "--procs", type=int, required=False, default=None)
     args = parser.parse_args()
@@ -302,8 +291,6 @@ def main():
 
     try:
         workdir = tempfile.mkdtemp()
-        print(workdir)
-        print(args.output_dir)
         print("Downloading train/val/test splits.")
         train_urls, val_urls, test_urls = download_urls(workdir)
 
@@ -327,33 +314,21 @@ def main():
         check_num_stories(CNN_TOK_STORIES, NUM_EXPECTED_CNN_STORIES)    
         check_num_stories(DM_TOK_STORIES, NUM_EXPECTED_DM_STORIES)      
 
-        train_stories = os.path.join(
-            args.output_dir, "inputs", "cnn.dm.inputs.train.json")
-        val_stories = os.path.join(
-            args.output_dir, "inputs", "cnn.dm.inputs.valid.json")
-        test_stories = os.path.join(
-            args.output_dir, "inputs", "cnn.dm.inputs.test.json")
-
-        train_labels = os.path.join(
-            args.output_dir, "labels", "cnn.dm.labels.train.json")
-        val_labels = os.path.join(
-            args.output_dir, "labels", "cnn.dm.labels.valid.json")
-        test_labels = os.path.join(
-            args.output_dir, "labels", "cnn.dm.labels.test.json")
-
-        train_abstracts = os.path.join(
-            args.output_dir, "human-abstracts", "train")                                     
-        valid_abstracts = os.path.join(
-            args.output_dir, "human-abstracts", "valid")                                     
-        test_abstracts = os.path.join(
-            args.output_dir, "human-abstracts", "test")                                      
-    
-        check_dir(os.path.join(args.output_dir, "inputs"))
-        check_dir(os.path.join(args.output_dir, "labels"))
-        check_dir(train_abstracts)                                                 
-        check_dir(valid_abstracts)                                                 
-        check_dir(test_abstracts)
+        data_dir = args.data_dir / "cnn-dailymail"
         
+
+        train_stories = data_dir / "inputs" / "train"
+        val_stories = data_dir / "inputs" / "valid"
+        test_stories = data_dir / "inputs" / "test"
+
+        train_labels = data_dir / "labels" / "train"
+        val_labels = data_dir / "labels" / "valid"
+        test_labels = data_dir / "labels" / "test"
+
+        train_abstracts = data_dir / "human-abstracts" / "train"      
+        valid_abstracts = data_dir / "human-abstracts" / "valid"               
+        test_abstracts = data_dir / "human-abstracts" / "test"   
+    
         pool = Pool(args.procs, initializer=init_worker)
 
         print("Writing cnn/dailymail validation data...")
