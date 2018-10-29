@@ -13,6 +13,8 @@ If you haven't installed spacy before in your current environment you should als
 python -m spacy download en
 ```
 
+Also it might be good to set your number of OMP threads to a small number, e.g. `export OMP_NUM_THREADS=2`
+
 # CNN/DailyMail Dataset
 To run:
 ```sh
