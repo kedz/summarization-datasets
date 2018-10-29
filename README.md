@@ -53,5 +53,12 @@ python summarization-datasets/preprocess_duc_sds.py \
 
 This will create put preprocessed duc data in `data/duc-sds/`.
  
+# PubMed Dataset
 
+To run:
+```sh
+python summarization-datasets/preprocess_pubmed.py \
+    --data-dir data/
+```
+This will create the PubMed data in a directory `data/pubmed`.
 
