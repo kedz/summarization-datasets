@@ -13,6 +13,15 @@ If you haven't installed spacy before in your current environment you should als
 python -m spacy download en
 ```
 
+# CNN/DailyMail Dataset
+To run:
+```sh
+python summarization-datasets/preprocess_cnn_dailymail.py \
+    --data-dir data/
+```
+This will create the CNN/DM data in a directory `data/cnn-dailymail`.
+This dataset is quite large and will take a while to preprocess. Grab a coffee!
+
 # DUC Dataset
 
 To obtain this data, first sign the release forms/email NIST 
