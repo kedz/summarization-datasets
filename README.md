@@ -35,7 +35,7 @@ cd raw_data
 tar zxvf nyt_corpus_LDC2008T19.tgz
 cd ..
 python summarization-datasets/preprocess_nyt.py \
-    --nyt raw_data/nyt \
+    --nyt raw_data/nyt_corpus \
     --data-dir data
 ```
 This will create preprocessed NYT data in `data/nyt/`.
