@@ -81,6 +81,15 @@ python summarization-datasets/preprocess_reddit.py \
 ```
 This will create the Reddit data in a directory `data/reddit`. 
  
+# AMI Dataset
+
+To run:
+```sh
+python summarization-datasets/preprocess_ami.py \
+    --data-dir data/
+```
+This will create the AMI data in a directory `data/ami`. 
+ 
 # PubMed Dataset
 
 To run:
