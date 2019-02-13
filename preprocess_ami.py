@@ -8,7 +8,7 @@ import tarfile
 
 
 EXPECTED_SIZE = 4213750
-URL = "http://www.cs.columbia.edu/~kedzie/ami.tar.gz"
+URL = "http://www.cs.columbia.edu/~kedzie/ami.v2.tar.gz"
 CHUNK_SIZE = 32768
 
 def main():
