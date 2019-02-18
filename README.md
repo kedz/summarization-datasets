@@ -28,7 +28,7 @@ This dataset is quite large and will take a while to preprocess. Grab a coffee!
 
 # NYT Dataset
 
-You must obtain the raw documents for this dataset from the LDC: https://catalog.ldc.upenn.edu/ldc2008t19
+You must obtain the raw documents for this dataset from the LDC: https://catalog.ldc.upenn.edu/LDC2008T19
 Assuming you have the original NYT tar file in a directory called `raw_data`, run the following:
 ```sh
 cd raw_data
