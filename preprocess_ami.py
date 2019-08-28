@@ -7,7 +7,7 @@ import tempfile
 import tarfile
 
 
-EXPECTED_SIZE = 4213750
+EXPECTED_SIZE = 4267682
 URL = "http://www.cs.columbia.edu/~kedzie/ami.v2.tar.gz"
 CHUNK_SIZE = 32768
 
