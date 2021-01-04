@@ -110,7 +110,7 @@ def extract_doc(content):
     if len(abs_txt.split()) + len(online_lead_txt.split()) < 100:
         return None
     doc_id = soup.find("doc-id")["id-string"] 
-    return article_text, abs_txt, online_lead_txt, doc_id, sections
+    return article_text, abs_txt, online_lead_txt, doc_id, list(sections)
 
 def worker(args):
     content, inputs_dir, labels_dir, abs_dir = args
